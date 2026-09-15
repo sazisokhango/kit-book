@@ -13,10 +13,11 @@ import (
 	"bitbucket.org/psybergate/kitbook/internal/store"
 )
 
-// Version is the kitbook build version. Sprint Zero hard-codes it; a real
-// version-injection mechanism (ldflags) can follow once there's a release
-// pipeline to inject it in P8/P9.
-const Version = "0.0.0-sprint1"
+// Version is the kitbook build version. Overridden at release build time via
+// -ldflags "-X bitbucket.org/psybergate/kitbook/internal/cli.Version=v0.1.0"
+// (see 09-release/release-checklist.md); "dev" for any build that doesn't
+// set it explicitly, so a plain `go build` is never mistaken for a release.
+var Version = "dev"
 
 // defaultDBPath and defaultServiceDuePath are the default file locations on
 // the operator's machine. RESOLVE-IN-PLAN: confirm the final path

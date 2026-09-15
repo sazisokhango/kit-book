@@ -1,2 +1,3 @@
 /kitbook
 *.db
+/dist/

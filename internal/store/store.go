@@ -232,11 +232,17 @@ func (s *Store) ListBookingHistory(itemID string) ([]Booking, error) {
 }
 
 // ItemStatusRow is the StatusRow DTO (05-spec/units/u5-status-board/spec.md §3).
+//
+// BookingID is an addition beyond the spec's original field list: without
+// it, the booking id printed once by `checkout` is unrecoverable if lost,
+// making `checkin <booking-id>` (U4) impossible to use in practice. Surfaced
+// during manual HITL testing of the running CLI.
 type ItemStatusRow struct {
-	ItemID  string
-	Status  string // AVAILABLE | CHECKED_OUT | OVERDUE
-	Holder  string // empty when AVAILABLE
-	DueBack string // empty when AVAILABLE
+	ItemID    string
+	Status    string // AVAILABLE | CHECKED_OUT | OVERDUE
+	Holder    string // empty when AVAILABLE
+	DueBack   string // empty when AVAILABLE
+	BookingID string // empty when AVAILABLE — the id to pass to `checkin`
 }
 
 // overdueThreshold is the 48h window from 02-discovery/discovery-log.md
@@ -266,6 +272,7 @@ func (s *Store) ListItemStatus(now time.Time) ([]ItemStatusRow, error) {
 		}
 		row := ItemStatusRow{ItemID: itemID, Status: "AVAILABLE"}
 		if bookingID.Valid {
+			row.BookingID = bookingID.String
 			row.Holder = memberName.String
 			row.DueBack = expectedReturn.String
 			row.Status = "CHECKED_OUT"

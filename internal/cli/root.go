@@ -176,8 +176,9 @@ func newStatusCmd(open serviceOpener) *cobra.Command {
 				return err
 			}
 			out := cmd.OutOrStdout()
+			fmt.Fprintln(out, "ITEM\tSTATUS\tHOLDER\tDUE BACK\tBOOKING ID")
 			for _, r := range rows {
-				fmt.Fprintf(out, "%s\t%s\t%s\t%s\n", r.ItemID, r.Status, r.Holder, r.DueBack)
+				fmt.Fprintf(out, "%s\t%s\t%s\t%s\t%s\n", r.ItemID, r.Status, r.Holder, r.DueBack, r.BookingID)
 			}
 			return nil
 		},

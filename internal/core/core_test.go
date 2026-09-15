@@ -91,6 +91,7 @@ func (f *fakeStore) ListItemStatus(now time.Time) ([]store.ItemStatusRow, error)
 				row.Status = "CHECKED_OUT"
 				row.Holder = b.MemberName
 				row.DueBack = b.ExpectedReturnDate
+				row.BookingID = b.BookingID
 				if now.Sub(b.CheckoutAt) > 48*time.Hour {
 					row.Status = "OVERDUE"
 				}

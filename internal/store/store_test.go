@@ -233,6 +233,14 @@ func TestListItemStatus(t *testing.T) {
 	if got := byID["ROPE-04"].Status; got != "OVERDUE" {
 		t.Fatalf(`ROPE-04 status = %q, want "OVERDUE"`, got)
 	}
+	// Without the booking id in the status row, a lost checkout receipt
+	// makes `checkin <booking-id>` impossible to use.
+	if got := byID["ROPE-04"].BookingID; got != "KB-1" {
+		t.Fatalf(`ROPE-04 BookingID = %q, want "KB-1"`, got)
+	}
+	if got := byID["RADIO-11"].BookingID; got != "" {
+		t.Fatalf(`RADIO-11 BookingID = %q, want "" (available item)`, got)
+	}
 	if got := byID["RADIO-11"].Status; got != "AVAILABLE" {
 		t.Fatalf(`RADIO-11 status = %q, want "AVAILABLE"`, got)
 	}

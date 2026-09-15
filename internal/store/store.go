@@ -187,6 +187,50 @@ func (s *Store) CloseBooking(bookingID string, checkinAt time.Time) error {
 	return nil
 }
 
+// ListBookingHistory returns every booking for itemID, oldest checkout_at
+// first (U6). Returns ItemNotFoundError if the item itself doesn't exist.
+func (s *Store) ListBookingHistory(itemID string) ([]Booking, error) {
+	if _, err := s.GetItem(itemID); err != nil {
+		return nil, err
+	}
+
+	rows, err := s.db.Query(`
+		SELECT booking_id, item_id, member_name, expected_return_date, checkout_at, checkin_at
+		FROM bookings
+		WHERE item_id = ?
+		ORDER BY checkout_at ASC`, itemID)
+	if err != nil {
+		return nil, fmt.Errorf("list booking history: %w", err)
+	}
+	defer rows.Close()
+
+	var history []Booking
+	for rows.Next() {
+		var b Booking
+		var checkoutAt string
+		var checkinAt sql.NullString
+		if err := rows.Scan(&b.BookingID, &b.ItemID, &b.MemberName, &b.ExpectedReturnDate, &checkoutAt, &checkinAt); err != nil {
+			return nil, fmt.Errorf("scan booking history: %w", err)
+		}
+		b.CheckoutAt, err = time.Parse(timeLayout, checkoutAt)
+		if err != nil {
+			return nil, fmt.Errorf("parse checkout_at: %w", err)
+		}
+		if checkinAt.Valid {
+			t, err := time.Parse(timeLayout, checkinAt.String)
+			if err != nil {
+				return nil, fmt.Errorf("parse checkin_at: %w", err)
+			}
+			b.CheckinAt = &t
+		}
+		history = append(history, b)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list booking history: %w", err)
+	}
+	return history, nil
+}
+
 // ItemStatusRow is the StatusRow DTO (05-spec/units/u5-status-board/spec.md §3).
 type ItemStatusRow struct {
 	ItemID  string

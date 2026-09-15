@@ -27,6 +27,7 @@ type Store interface {
 	InsertBooking(b store.Booking) error
 	CloseBooking(bookingID string, checkinAt time.Time) error
 	ListItemStatus(now time.Time) ([]store.ItemStatusRow, error)
+	ListBookingHistory(itemID string) ([]store.Booking, error)
 }
 
 // ServiceDueChecker is the subset of *servicedue.Checker core depends on.
@@ -34,24 +35,23 @@ type ServiceDueChecker interface {
 	IsServiceDue(itemID string) bool
 }
 
-// Service wires the storage layer and the service-due checker together to
-// implement U3/U4/U5's business rules.
+// Service wires the storage layer together with U3/U4/U5/U6's business
+// rules. The service-due checker (U7) is deliberately NOT loaded here —
+// only Checkout depends on it (per u5/u6's specs, which declare "Depends
+// On: U1" only), so loading it eagerly for every command would make
+// `status`/`history` fail on a missing service-due file they never read.
+// See Checkout, which loads it lazily and caches the result.
 type Service struct {
-	Store       Store
-	ServiceDue  ServiceDueChecker
-	Now         func() time.Time // overridable in tests
+	Store          Store
+	ServiceDue     ServiceDueChecker // set once Checkout has loaded it; nil until then
+	ServiceDuePath string
+	Now            func() time.Time // overridable in tests
 }
 
-// NewService constructs a Service. servicePath is the path to the
-// service-due data file (U7); it is loaded fresh on construction so a
-// changed file is picked up on the next command invocation (kitbook is a
-// short-lived CLI process, not a long-running daemon).
-func NewService(st *store.Store, servicePath string) (*Service, error) {
-	checker, err := servicedue.Load(servicePath)
-	if err != nil {
-		return nil, err
-	}
-	return &Service{Store: st, ServiceDue: checker, Now: time.Now}, nil
+// NewService constructs a Service against an already-open store. The
+// service-due file at servicePath is not read until the first Checkout call.
+func NewService(st *store.Store, servicePath string) *Service {
+	return &Service{Store: st, ServiceDuePath: servicePath, Now: time.Now}
 }
 
 func (s *Service) now() time.Time {
@@ -71,7 +71,9 @@ func newBookingID() (string, error) {
 }
 
 // Checkout implements U3: records a checkout after verifying the item is
-// available and not service-due, or fails explicitly with the reason.
+// available and not service-due, or fails explicitly with the reason. The
+// service-due file (U7) is loaded on first use, not at Service construction
+// — see the Service doc comment.
 func (s *Service) Checkout(itemID, memberName, expectedReturnDate string) (string, error) {
 	if _, err := s.Store.GetItem(itemID); err != nil {
 		return "", err
@@ -85,6 +87,13 @@ func (s *Service) Checkout(itemID, memberName, expectedReturnDate string) (strin
 		return "", &kitbookerrors.ItemAlreadyCheckedOutError{ItemID: itemID}
 	}
 
+	if s.ServiceDue == nil {
+		checker, err := servicedue.Load(s.ServiceDuePath)
+		if err != nil {
+			return "", err
+		}
+		s.ServiceDue = checker
+	}
 	if s.ServiceDue.IsServiceDue(itemID) {
 		return "", &kitbookerrors.ItemServiceDueError{ItemID: itemID}
 	}
@@ -110,6 +119,11 @@ func (s *Service) Checkout(itemID, memberName, expectedReturnDate string) (strin
 // Checkin implements U4: closes an open booking by booking id.
 func (s *Service) Checkin(bookingID string) error {
 	return s.Store.CloseBooking(bookingID, s.now())
+}
+
+// History implements U6: lists every booking for itemID, oldest first.
+func (s *Service) History(itemID string) ([]store.Booking, error) {
+	return s.Store.ListBookingHistory(itemID)
 }
 
 // StatusRow is the StatusRow DTO (05-spec/units/u5-status-board/spec.md §3).

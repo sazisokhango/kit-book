@@ -69,6 +69,19 @@ func (f *fakeStore) CloseBooking(bookingID string, checkinAt time.Time) error {
 	return nil
 }
 
+func (f *fakeStore) ListBookingHistory(itemID string) ([]store.Booking, error) {
+	if _, ok := f.items[itemID]; !ok {
+		return nil, &kitbookerrors.ItemNotFoundError{ItemID: itemID}
+	}
+	var history []store.Booking
+	for _, b := range f.bookings {
+		if b.ItemID == itemID {
+			history = append(history, b)
+		}
+	}
+	return history, nil
+}
+
 func (f *fakeStore) ListItemStatus(now time.Time) ([]store.ItemStatusRow, error) {
 	var rows []store.ItemStatusRow
 	for id := range f.items {
@@ -232,10 +245,7 @@ func TestNewService_Integration(t *testing.T) {
 		t.Fatalf("write service-due file: %v", err)
 	}
 
-	svc, err := NewService(st, svcDuePath)
-	if err != nil {
-		t.Fatalf("NewService() error = %v", err)
-	}
+	svc := NewService(st, svcDuePath)
 
 	bookingID, err := svc.Checkout("ROPE-04", "Tayob", "2026-09-20")
 	if err != nil {
@@ -246,17 +256,32 @@ func TestNewService_Integration(t *testing.T) {
 	}
 }
 
-func TestNewService_ServiceDueFileMissing(t *testing.T) {
+// Checkout genuinely needs the service-due file and fails closed without
+// one; Status/History have no such dependency (per their specs' own
+// "Depends On: U1" line) and must keep working when the file is missing.
+func TestNewService_StatusAndHistoryWorkWithoutServiceDueFile(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "kitbook.db")
 	st, err := store.Open(dbPath)
 	if err != nil {
 		t.Fatalf("store.Open() error = %v", err)
 	}
 	t.Cleanup(func() { st.Close() })
+	if err := st.InsertItem("ROPE-04", "rope"); err != nil {
+		t.Fatalf("InsertItem() error = %v", err)
+	}
 
-	_, err = NewService(st, filepath.Join(t.TempDir(), "missing.txt"))
+	svc := NewService(st, filepath.Join(t.TempDir(), "missing.txt"))
+
+	if _, err := svc.Status(); err != nil {
+		t.Fatalf("Status() error = %v, want nil (no service-due dependency)", err)
+	}
+	if _, err := svc.History("ROPE-04"); err != nil {
+		t.Fatalf("History() error = %v, want nil (no service-due dependency)", err)
+	}
+
+	_, err = svc.Checkout("ROPE-04", "Tayob", "2026-09-20")
 	if _, ok := err.(*kitbookerrors.ServiceDueFileUnavailableError); !ok {
-		t.Fatalf("NewService() error = %v, want *kitbookerrors.ServiceDueFileUnavailableError", err)
+		t.Fatalf("Checkout() error = %v, want *kitbookerrors.ServiceDueFileUnavailableError", err)
 	}
 }
 
@@ -279,6 +304,31 @@ func TestService_NowDefaultsWhenNil(t *testing.T) {
 	}
 	if booking.CheckoutAt.Before(before) || booking.CheckoutAt.After(after) {
 		t.Fatalf("CheckoutAt = %v, want between %v and %v", booking.CheckoutAt, before, after)
+	}
+}
+
+func TestHistory_ItemNotFound(t *testing.T) {
+	fs := newFakeStore()
+	svc := newTestService(fs, &fakeServiceDue{})
+
+	_, err := svc.History("ROPE-99")
+	if _, ok := err.(*kitbookerrors.ItemNotFoundError); !ok {
+		t.Fatalf("History() error = %v, want *kitbookerrors.ItemNotFoundError", err)
+	}
+}
+
+func TestHistory_ReturnsBookings(t *testing.T) {
+	fs := newFakeStore()
+	fs.items["ROPE-04"] = store.Item{ItemID: "ROPE-04", ItemType: "rope"}
+	fs.bookings["KB-1"] = store.Booking{BookingID: "KB-1", ItemID: "ROPE-04", MemberName: "Tayob"}
+	svc := newTestService(fs, &fakeServiceDue{})
+
+	history, err := svc.History("ROPE-04")
+	if err != nil {
+		t.Fatalf("History() error = %v", err)
+	}
+	if len(history) != 1 {
+		t.Fatalf("History() returned %d rows, want 1", len(history))
 	}
 }
 

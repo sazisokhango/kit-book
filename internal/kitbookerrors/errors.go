@@ -57,3 +57,11 @@ type ServiceDueFileFormatError struct{}
 func (e *ServiceDueFileFormatError) Error() string {
 	return "service-due file unreadable — checkout blocked for safety"
 }
+
+// InvalidCatalogueFormatError — U2: a seed file row's item_id does not match
+// the "<TYPE>-<NN>" pattern, or the file is otherwise malformed.
+type InvalidCatalogueFormatError struct{ Reason string }
+
+func (e *InvalidCatalogueFormatError) Error() string {
+	return fmt.Sprintf("invalid catalogue file: %s", e.Reason)
+}

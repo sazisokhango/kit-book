@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"bitbucket.org/psybergate/kitbook/internal/catalogue"
 	"bitbucket.org/psybergate/kitbook/internal/core"
 	"bitbucket.org/psybergate/kitbook/internal/store"
 )
@@ -44,12 +45,11 @@ func newRootCmd() *cobra.Command {
 		if err != nil {
 			return nil, nil, fmt.Errorf("store: %w", err)
 		}
-		svc, err := core.NewService(st, serviceDuePath)
-		if err != nil {
-			st.Close()
-			return nil, nil, err
-		}
-		return svc, st, nil
+		return core.NewService(st, serviceDuePath), st, nil
+	}
+
+	openStore := func() (*store.Store, error) {
+		return store.Open(dbPath)
 	}
 
 	root.AddCommand(newVersionCmd())
@@ -57,6 +57,8 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newCheckoutCmd(openService))
 	root.AddCommand(newCheckinCmd(openService))
 	root.AddCommand(newStatusCmd(openService))
+	root.AddCommand(newSeedCmd(openStore))
+	root.AddCommand(newHistoryCmd(openStore))
 	return root
 }
 
@@ -176,6 +178,63 @@ func newStatusCmd(open serviceOpener) *cobra.Command {
 			out := cmd.OutOrStdout()
 			for _, r := range rows {
 				fmt.Fprintf(out, "%s\t%s\t%s\t%s\n", r.ItemID, r.Status, r.Holder, r.DueBack)
+			}
+			return nil
+		},
+	}
+}
+
+// storeOpener opens just the Store, for commands that don't need the
+// service-due checker (seed, history).
+type storeOpener func() (*store.Store, error)
+
+// newSeedCmd implements U2 (05-spec/units/u2-catalogue-seed/spec.md).
+func newSeedCmd(open storeOpener) *cobra.Command {
+	return &cobra.Command{
+		Use:   "seed <catalogue-csv>",
+		Short: "Bulk-load the item catalogue from a CSV file (header: item_id,item_type)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			st, err := open()
+			if err != nil {
+				return fmt.Errorf("store: %w", err)
+			}
+			defer st.Close()
+
+			result, err := catalogue.Seed(st, args[0])
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Loaded %d items\n", result.ItemsLoaded)
+			return nil
+		},
+	}
+}
+
+// newHistoryCmd implements U6 (05-spec/units/u6-history/spec.md).
+func newHistoryCmd(open storeOpener) *cobra.Command {
+	return &cobra.Command{
+		Use:   "history <item-id>",
+		Short: "Show an item's booking history, oldest first",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			st, err := open()
+			if err != nil {
+				return fmt.Errorf("store: %w", err)
+			}
+			defer st.Close()
+
+			history, err := st.ListBookingHistory(args[0])
+			if err != nil {
+				return err
+			}
+			out := cmd.OutOrStdout()
+			for _, b := range history {
+				checkinAt := ""
+				if b.CheckinAt != nil {
+					checkinAt = b.CheckinAt.Format("2006-01-02T15:04:05Z07:00")
+				}
+				fmt.Fprintf(out, "%s\t%s\t%s\t%s\n", b.BookingID, b.MemberName, b.CheckoutAt.Format("2006-01-02T15:04:05Z07:00"), checkinAt)
 			}
 			return nil
 		},

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -155,6 +156,48 @@ func TestCloseBooking_AlreadyClosed(t *testing.T) {
 	err := s.CloseBooking("KB-1001", time.Now())
 	if _, ok := err.(*kitbookerrors.BookingAlreadyClosedError); !ok {
 		t.Fatalf("CloseBooking() error = %v, want *kitbookerrors.BookingAlreadyClosedError", err)
+	}
+}
+
+// Scenario: List history oldest-first
+func TestListBookingHistory_OldestFirst(t *testing.T) {
+	s := openTestStore(t)
+	if err := s.InsertItem("ROPE-04", "rope"); err != nil {
+		t.Fatalf("InsertItem() error = %v", err)
+	}
+
+	base := time.Now().Add(-72 * time.Hour)
+	for i, member := range []string{"Tayob", "Nkosinathi", "Chris"} {
+		checkoutAt := base.Add(time.Duration(i) * time.Hour)
+		if err := s.InsertBooking(Booking{
+			BookingID: fmt.Sprintf("KB-%d", i), ItemID: "ROPE-04", MemberName: member,
+			ExpectedReturnDate: "2026-09-20", CheckoutAt: checkoutAt,
+		}); err != nil {
+			t.Fatalf("InsertBooking() error = %v", err)
+		}
+		if err := s.CloseBooking(fmt.Sprintf("KB-%d", i), checkoutAt.Add(time.Hour)); err != nil {
+			t.Fatalf("CloseBooking() error = %v", err)
+		}
+	}
+
+	history, err := s.ListBookingHistory("ROPE-04")
+	if err != nil {
+		t.Fatalf("ListBookingHistory() error = %v", err)
+	}
+	if len(history) != 3 {
+		t.Fatalf("ListBookingHistory() returned %d rows, want 3", len(history))
+	}
+	if history[0].MemberName != "Tayob" || history[2].MemberName != "Chris" {
+		t.Fatalf("ListBookingHistory() not oldest-first: %+v", history)
+	}
+}
+
+func TestListBookingHistory_ItemNotFound(t *testing.T) {
+	s := openTestStore(t)
+
+	_, err := s.ListBookingHistory("ROPE-99")
+	if _, ok := err.(*kitbookerrors.ItemNotFoundError); !ok {
+		t.Fatalf("ListBookingHistory() error = %v, want *kitbookerrors.ItemNotFoundError", err)
 	}
 }
 

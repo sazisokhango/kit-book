@@ -1,6 +1,6 @@
-// Package cli wires kitbook's cobra command tree (ADR-003). Sprint Zero adds
-// only the hello-world commands (version, doctor); checkout/checkin/status/
-// history land in Sprint 1 against 05-spec/units/.
+// Package cli wires kitbook's cobra command tree (ADR-003): version, doctor
+// (Sprint Zero), and checkout/checkin/status (Sprint 1, against
+// 05-spec/units/{u3,u4,u5}-*/spec.md).
 package cli
 
 import (
@@ -15,20 +15,48 @@ import (
 // Version is the kitbook build version. Sprint Zero hard-codes it; a real
 // version-injection mechanism (ldflags) can follow once there's a release
 // pipeline to inject it in P8/P9.
-const Version = "0.0.0-sprintzero"
+const Version = "0.0.0-sprint1"
 
-// defaultDBPath is the default location of the SQLite database file on the
-// operator's machine. RESOLVE-IN-PLAN: confirm the final path convention
-// with Chris before Sprint 1 ships (see 05-spec/units/u1-data-model/spec.md).
-const defaultDBPath = "kitbook.db"
+// defaultDBPath and defaultServiceDuePath are the default file locations on
+// the operator's machine. RESOLVE-IN-PLAN: confirm the final path
+// conventions with Chris (see 05-spec/units/u1-data-model/spec.md and
+// u7-service-due-integration/spec.md) — both are overridable via flags in
+// the meantime.
+const (
+	defaultDBPath         = "kitbook.db"
+	defaultServiceDuePath = "service-due.txt"
+)
 
 func newRootCmd() *cobra.Command {
+	var dbPath, serviceDuePath string
+
 	root := &cobra.Command{
-		Use:   "kitbook",
-		Short: "kitbook manages equipment checkout/checkin for Ridgeline Mountain Rescue",
+		Use:           "kitbook",
+		Short:         "kitbook manages equipment checkout/checkin for Ridgeline Mountain Rescue",
+		SilenceUsage:  true,
+		SilenceErrors: false,
 	}
+	root.PersistentFlags().StringVar(&dbPath, "db", defaultDBPath, "path to the kitbook SQLite database file")
+	root.PersistentFlags().StringVar(&serviceDuePath, "service-due-file", defaultServiceDuePath, "path to the service-due data file")
+
+	openService := func() (*core.Service, *store.Store, error) {
+		st, err := store.Open(dbPath)
+		if err != nil {
+			return nil, nil, fmt.Errorf("store: %w", err)
+		}
+		svc, err := core.NewService(st, serviceDuePath)
+		if err != nil {
+			st.Close()
+			return nil, nil, err
+		}
+		return svc, st, nil
+	}
+
 	root.AddCommand(newVersionCmd())
-	root.AddCommand(newDoctorCmd())
+	root.AddCommand(newDoctorCmd(&dbPath))
+	root.AddCommand(newCheckoutCmd(openService))
+	root.AddCommand(newCheckinCmd(openService))
+	root.AddCommand(newStatusCmd(openService))
 	return root
 }
 
@@ -45,12 +73,11 @@ func newVersionCmd() *cobra.Command {
 	}
 }
 
-// newDoctorCmd is kitbook's CLI equivalent of a "/health" endpoint
-// (sprint-zero-checklist.md has no network service to expose one on): it
+// newDoctorCmd is kitbook's CLI equivalent of a "/health" endpoint: it
 // exercises the domain-logic container (core.Ping) and the storage
 // container (store.Open + Ping) end-to-end and reports a deterministic
 // result.
-func newDoctorCmd() *cobra.Command {
+func newDoctorCmd(dbPath *string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "doctor",
 		Short: "Check that kitbook's storage and core wiring are healthy",
@@ -59,7 +86,7 @@ func newDoctorCmd() *cobra.Command {
 
 			fmt.Fprintf(out, "core: %s\n", core.Ping())
 
-			s, err := store.Open(defaultDBPath)
+			s, err := store.Open(*dbPath)
 			if err != nil {
 				return fmt.Errorf("store: %w", err)
 			}
@@ -69,6 +96,87 @@ func newDoctorCmd() *cobra.Command {
 				return fmt.Errorf("store ping: %w", err)
 			}
 			fmt.Fprintln(out, "store: ok")
+			return nil
+		},
+	}
+}
+
+// serviceOpener opens the wired-together Store + Service for a command
+// invocation. Returning the raw *store.Store too lets callers defer Close.
+type serviceOpener func() (*core.Service, *store.Store, error)
+
+// newCheckoutCmd implements U3 (05-spec/units/u3-checkout/spec.md).
+func newCheckoutCmd(open serviceOpener) *cobra.Command {
+	var member, returnDate string
+
+	cmd := &cobra.Command{
+		Use:   "checkout <item-id>",
+		Short: "Check out an item to a member",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, st, err := open()
+			if err != nil {
+				return err
+			}
+			defer st.Close()
+
+			bookingID, err := svc.Checkout(args[0], member, returnDate)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Checked out %s -- booking %s\n", args[0], bookingID)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&member, "member", "", "name of the member checking out the item")
+	cmd.Flags().StringVar(&returnDate, "return", "", "expected return date (YYYY-MM-DD)")
+	cmd.MarkFlagRequired("member")
+	cmd.MarkFlagRequired("return")
+	return cmd
+}
+
+// newCheckinCmd implements U4 (05-spec/units/u4-checkin/spec.md).
+func newCheckinCmd(open serviceOpener) *cobra.Command {
+	return &cobra.Command{
+		Use:   "checkin <booking-id>",
+		Short: "Check in an item by booking id",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, st, err := open()
+			if err != nil {
+				return err
+			}
+			defer st.Close()
+
+			if err := svc.Checkin(args[0]); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Checked in booking %s\n", args[0])
+			return nil
+		},
+	}
+}
+
+// newStatusCmd implements U5 (05-spec/units/u5-status-board/spec.md).
+func newStatusCmd(open serviceOpener) *cobra.Command {
+	return &cobra.Command{
+		Use:   "status",
+		Short: "Show every item's status, holder, and due-back date",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, st, err := open()
+			if err != nil {
+				return err
+			}
+			defer st.Close()
+
+			rows, err := svc.Status()
+			if err != nil {
+				return err
+			}
+			out := cmd.OutOrStdout()
+			for _, r := range rows {
+				fmt.Fprintf(out, "%s\t%s\t%s\t%s\n", r.ItemID, r.Status, r.Holder, r.DueBack)
+			}
 			return nil
 		},
 	}

@@ -39,12 +39,12 @@ type Item struct {
 
 // Booking is the BookingRecord DTO (05-spec/units/u1-data-model/spec.md §3).
 type Booking struct {
-	BookingID           string
-	ItemID              string
-	MemberName          string
-	ExpectedReturnDate  string
-	CheckoutAt          time.Time
-	CheckinAt           *time.Time // nil while checked out
+	BookingID          string
+	ItemID             string
+	MemberName         string
+	ExpectedReturnDate string
+	CheckoutAt         time.Time
+	CheckinAt          *time.Time // nil while checked out
 }
 
 // Store wraps the SQLite connection.
@@ -60,7 +60,7 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
 	if _, err := db.Exec(schema); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("apply schema: %w", err)
 	}
 	return &Store{db: db}, nil
@@ -202,7 +202,7 @@ func (s *Store) ListBookingHistory(itemID string) ([]Booking, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list booking history: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var history []Booking
 	for rows.Next() {
@@ -261,7 +261,7 @@ func (s *Store) ListItemStatus(now time.Time) ([]ItemStatusRow, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list item status: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var result []ItemStatusRow
 	for rows.Next() {

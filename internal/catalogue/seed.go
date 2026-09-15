@@ -56,7 +56,7 @@ func parse(filePath string) ([]Row, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open catalogue file: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	r := csv.NewReader(f)
 	header, err := r.Read()

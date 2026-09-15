@@ -235,7 +235,7 @@ func TestNewService_Integration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("store.Open() error = %v", err)
 	}
-	t.Cleanup(func() { st.Close() })
+	t.Cleanup(func() { _ = st.Close() })
 
 	if err := st.InsertItem("ROPE-04", "rope"); err != nil {
 		t.Fatalf("InsertItem() error = %v", err)
@@ -266,7 +266,7 @@ func TestNewService_StatusAndHistoryWorkWithoutServiceDueFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("store.Open() error = %v", err)
 	}
-	t.Cleanup(func() { st.Close() })
+	t.Cleanup(func() { _ = st.Close() })
 	if err := st.InsertItem("ROPE-04", "rope"); err != nil {
 		t.Fatalf("InsertItem() error = %v", err)
 	}

@@ -69,7 +69,7 @@ func newVersionCmd() *cobra.Command {
 		Use:   "version",
 		Short: "Print the kitbook version",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Fprintln(cmd.OutOrStdout(), Version)
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), Version)
 			return nil
 		},
 	}
@@ -86,18 +86,18 @@ func newDoctorCmd(dbPath *string) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
 
-			fmt.Fprintf(out, "core: %s\n", core.Ping())
+			_, _ = fmt.Fprintf(out, "core: %s\n", core.Ping())
 
 			s, err := store.Open(*dbPath)
 			if err != nil {
 				return fmt.Errorf("store: %w", err)
 			}
-			defer s.Close()
+			defer func() { _ = s.Close() }()
 
 			if err := s.Ping(); err != nil {
 				return fmt.Errorf("store ping: %w", err)
 			}
-			fmt.Fprintln(out, "store: ok")
+			_, _ = fmt.Fprintln(out, "store: ok")
 			return nil
 		},
 	}
@@ -120,20 +120,20 @@ func newCheckoutCmd(open serviceOpener) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer st.Close()
+			defer func() { _ = st.Close() }()
 
 			bookingID, err := svc.Checkout(args[0], member, returnDate)
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Checked out %s -- booking %s\n", args[0], bookingID)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Checked out %s -- booking %s\n", args[0], bookingID)
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&member, "member", "", "name of the member checking out the item")
 	cmd.Flags().StringVar(&returnDate, "return", "", "expected return date (YYYY-MM-DD)")
-	cmd.MarkFlagRequired("member")
-	cmd.MarkFlagRequired("return")
+	_ = cmd.MarkFlagRequired("member")
+	_ = cmd.MarkFlagRequired("return")
 	return cmd
 }
 
@@ -148,12 +148,12 @@ func newCheckinCmd(open serviceOpener) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer st.Close()
+			defer func() { _ = st.Close() }()
 
 			if err := svc.Checkin(args[0]); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Checked in booking %s\n", args[0])
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Checked in booking %s\n", args[0])
 			return nil
 		},
 	}
@@ -169,16 +169,16 @@ func newStatusCmd(open serviceOpener) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer st.Close()
+			defer func() { _ = st.Close() }()
 
 			rows, err := svc.Status()
 			if err != nil {
 				return err
 			}
 			out := cmd.OutOrStdout()
-			fmt.Fprintln(out, "ITEM\tSTATUS\tHOLDER\tDUE BACK\tBOOKING ID")
+			_, _ = fmt.Fprintln(out, "ITEM\tSTATUS\tHOLDER\tDUE BACK\tBOOKING ID")
 			for _, r := range rows {
-				fmt.Fprintf(out, "%s\t%s\t%s\t%s\t%s\n", r.ItemID, r.Status, r.Holder, r.DueBack, r.BookingID)
+				_, _ = fmt.Fprintf(out, "%s\t%s\t%s\t%s\t%s\n", r.ItemID, r.Status, r.Holder, r.DueBack, r.BookingID)
 			}
 			return nil
 		},
@@ -200,13 +200,13 @@ func newSeedCmd(open storeOpener) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("store: %w", err)
 			}
-			defer st.Close()
+			defer func() { _ = st.Close() }()
 
 			result, err := catalogue.Seed(st, args[0])
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Loaded %d items\n", result.ItemsLoaded)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Loaded %d items\n", result.ItemsLoaded)
 			return nil
 		},
 	}
@@ -223,7 +223,7 @@ func newHistoryCmd(open storeOpener) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("store: %w", err)
 			}
-			defer st.Close()
+			defer func() { _ = st.Close() }()
 
 			history, err := st.ListBookingHistory(args[0])
 			if err != nil {
@@ -235,7 +235,7 @@ func newHistoryCmd(open storeOpener) *cobra.Command {
 				if b.CheckinAt != nil {
 					checkinAt = b.CheckinAt.Format("2006-01-02T15:04:05Z07:00")
 				}
-				fmt.Fprintf(out, "%s\t%s\t%s\t%s\n", b.BookingID, b.MemberName, b.CheckoutAt.Format("2006-01-02T15:04:05Z07:00"), checkinAt)
+				_, _ = fmt.Fprintf(out, "%s\t%s\t%s\t%s\n", b.BookingID, b.MemberName, b.CheckoutAt.Format("2006-01-02T15:04:05Z07:00"), checkinAt)
 			}
 			return nil
 		},

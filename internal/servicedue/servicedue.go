@@ -47,7 +47,7 @@ func Load(path string) (*Checker, error) {
 		}
 		return nil, &kitbookerrors.ServiceDueFileUnavailableError{}
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	due := make(map[string]bool)
 	scanner := bufio.NewScanner(f)
